@@ -1,11 +1,1 @@
-{"nodes":[{"parameters":{"waitUntil":{"everySecond":true}},"name":"Wait","type":"n8n-nodes-base.wait","typeVersion":1},{"parameters":{"functionCode":"const start = new Date();
-const end = new Date();
-end.setHours(end.getHours() + 6);
-const now = new Date();
-
-if (now >= start && now <= end) {
-  return [{ json: { shutdown: true } }];
-} else {
-  return [{ json: { shutdown: false } }];
-}
-"},"name":"Check Timing","type":"n8n-nodes-base.function","typeVersion":1},{"parameters":{"workflowId":"12345","workflowName":"Mist Rogue Auto-Shutdown"},"name":"Execute Workflow","type":"n8n-nodes-base.executeWorkflow","typeVersion":1}],"connections":{"Wait":{"main":[[{"node":"Check Timing","type":"main"}]]},"Check Timing":{"main":[[{"node":"Execute Workflow","type":"main"}]]}}}
+{"nodes":[{"parameters":{"workflowId":"12345","name":"Mist Rogue Auto-Shutdown"},"type":"n8n-nodes-base.start","position":{"x":250,"y":300}},{"parameters":{"functionCode":"// Code to check if shut down is necessary\nlet shutDownNeeded = true;\nreturn [{ json: { shutDownNeeded } }];"},"type":"n8n-nodes-base.function","position":{"x":400,"y":300}},{"parameters":{"functionCode":"// Code to execute the shutdown\nif (items[0].json.shutDownNeeded) {\n  // Call shutdown command\n}\nreturn items;"},"type":"n8n-nodes-base.function","position":{"x":550,"y":300}}, {"parameters":{"cronExpression":"0 0 * * *","timezone":"UTC"},"type":"n8n-nodes-base.cron","position":{"x":100,"y":300}}],"connections":{ "Start": {"main": [[{ "node": "Function", "type": "main", "index": 0 }]]}, "Function": {"main": [[{ "node": "Function2", "type": "main", "index": 0 }]]}, "Function2": {"main": [[{ "node": "End", "type": "main", "index": 0 }]]}}}
