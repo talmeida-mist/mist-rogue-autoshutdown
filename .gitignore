@@ -1,0 +1,22 @@
+# Ignore environment files
+.env
+*.env
+
+# Ignore node modules
+node_modules/
+
+# Ignore n8n credential exports
+*.n8n.json
+
+# Ignore OS generated files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE files
+.vscode/
+.idea/
+
+# Ignore backup and temporary files
+*~
+*.bak
+*.tmp
