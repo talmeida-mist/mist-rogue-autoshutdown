@@ -1,4 +1,4 @@
-# Mist Rogue Auto-Shutdown n8n Workflow
+# Mist Rogue Auto-Shutdown
 
 ## Overview
 The Mist Rogue Auto-Shutdown workflow is designed to automate the shutdown of rogue devices on your network using n8n. This process helps maintain network integrity and security by removing unauthorized devices swiftly and efficiently.
