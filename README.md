@@ -1,3 +1,9 @@
+# Disclaimer
+
+This project was independently developed and is not affiliated with or officially supported by Hewlett Packard Enterprise (HPE), Juniper Networks, or Mist Systems.
+
+All use of this repository and its workflows is at your own risk. The author and the aforementioned companies assume no responsibility or liability for any damages or issues arising from its use.
+
 # Mist Rogue Auto-Shutdown
 
 ## Overview
