@@ -1,0 +1,661 @@
+{
+  "name": "Mist Rogue Auto-Shutdown",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-api-host",
+              "name": "apiHost",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-org-id",
+              "name": "orgId",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-email-from",
+              "name": "emailFrom",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "cfg-email-to",
+              "name": "emailTo",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7b04821-44f7-4c82-9c87-1dbfff38b6ef",
+      "name": "⚙️ Config (edit me)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        928
+      ],
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "notes": "Edit these values with your Mist API host, Org ID and email addresses. Your API token is stored separately as an n8n Header Auth credential named 'Mist API Token'."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"accepted\" }",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "5849b6c2-88e2-420e-ae61-e8e69647707d",
+      "name": "Respond ",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        800,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "=={{ $json.skip }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0d8115b8-f2cd-4ac0-981c-87f3b0d474bc",
+      "name": "No Rogue Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        944,
+        1136
+      ],
+      "id": "02f78979-4f71-46a7-a044-427ff14feed2",
+      "name": "Merge",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n-safe: process ALL incoming items\nconst items = $input.all();\n\nconst ROGUE_TYPES = new Set(['rogue_client', 'rogue_ap']);\n\nfunction normalizeMac(mac) {\n  return String(mac || '')\n    .replace(/[:\\-\\.]/g, '')\n    .toLowerCase()\n    .trim();\n}\n\nfunction formatMac(mac) {\n  const m = normalizeMac(mac);\n  if (m.length !== 12) return mac;\n  return m.match(/.{2}/g).join(':');\n}\n\nconst rogueItems = [];\n\nfor (const item of items) {\n\n  const input = item.json || {};\n\n  // 🔥 FIX: unwrap nested webhook bodies (n8n quirk)\n  let body = input;\n  if (body.body) body = body.body;\n  if (body.body) body = body.body;\n\n  const topic = body.topic ?? '';\n\n  // Support both array and single event payload\n  const events = Array.isArray(body.events)\n    ? body.events\n    : [body];\n\n  for (const event of events) {\n\n    const eventType = String(event?.type || '')\n      .trim()\n      .toLowerCase();\n\n    if (!ROGUE_TYPES.has(eventType)) continue;\n\n    // Extract MACs (Mist can vary structure)\n    let macRaws = [];\n    if (Array.isArray(event.macs) && event.macs.length) macRaws = event.macs;\n    else if (event.client_mac) macRaws = [event.client_mac];\n    else if (event.bssid) macRaws = [event.bssid];\n    else if (event.mac) macRaws = [event.mac];\n\n    const validMacs = (macRaws || [])\n      .filter(m => m !== null && m !== undefined)\n      .map(m => normalizeMac(m))\n      .filter(m => m.length === 12);\n\n    if (!validMacs.length) continue;\n\n    rogueItems.push({\n      eventType,\n      topic,\n      siteId:   event.site_id   ?? '',\n      siteName: event.site_name ?? '',\n      orgId:    event.org_id    ?? '',\n      macs: validMacs,\n      macsDisplay: validMacs.map(formatMac),\n      rawEvent: event,\n      timestamp: new Date().toISOString()\n    });\n  }\n}\n\n// ✅ n8n requires ALWAYS returning an array\nif (!rogueItems.length) {\n  return [{\n    json: {\n      skip: true,\n      reason: 'No rogue events in payload',\n      debug: {\n        itemsReceived: items.length,\n        sampleKeys: Object.keys(items[0]?.json || {})\n      }\n    }\n  }];\n}\n\n// ✅ Return one item per rogue event\nreturn rogueItems.map(item => ({\n  json: item\n}));"
+      },
+      "id": "83cdccd7-79ad-4420-9133-a47f9c57c3e9",
+      "name": "Parse Rogue Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst output = [];\n\nfunction formatMac(mac) {\n  return mac.length === 12\n    ? mac.match(/.{2}/g).join(':')\n    : mac;\n}\n\nconst apiHost = $json.apiHost ?? 'api.mist.com';\nconst orgId   = $json.orgId   ?? null;\n\nfor (const item of items) {\n\n  const data = item.json || {};\n\n  // ✅ Skip invalid / control items\n  if (data.skip === true) continue;\n\n  const macs = Array.isArray(data.macs) ? data.macs : [];\n\n  if (!macs.length) {\n    output.push({\n      json: {\n        skip: true,\n        reason: 'No MACs found in item',\n        ...data\n      }\n    });\n    continue;\n  }\n\n  // ✅ Emit one item per MAC\n  for (const mac of macs) {\n    output.push({\n      json: {\n        ...data,\n        currentMac: mac,\n        currentMacDisplay: formatMac(mac),\n        apiHost,\n        orgId,\n        searchUrl: `https://${apiHost}/api/v1/orgs/${orgId}/sites`\n      }\n    });\n  }\n}\n\n// ✅ Always return array\nif (!output.length) {\n  return [{\n    json: {\n      skip: true,\n      reason: 'No valid MACs to process'\n    }\n  }];\n}\n\nreturn output;"
+      },
+      "id": "800bd5e5-e540-491e-b484-9f2f323ac263",
+      "name": "Prepare MAC Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://' + $json.apiHost + '/api/v1/orgs/' + $json.orgId + '/sites' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "id": "f07661de-5527-4ee2-93bf-cd13163cc40d",
+      "name": "Get Sites",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        944
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Ud9Uy27mBAS8S7Cr",
+          "name": "Mist API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Search each site for the MAC and collect matches ─────────────────────────\nconst input    = $input.all();\nconst first    = input[0].json;\nconst sites    = Array.isArray(first) ? first : [first];\n\n// The upstream items carry the context we need\nconst ctx = $('Prepare MAC Search').first().json;\n\nreturn sites.map(site => ({\n  json: {\n    siteId:            site.id,\n    siteName:          site.name ?? site.id,\n    currentMac:        ctx.currentMac,\n    currentMacDisplay: ctx.currentMacDisplay,\n    macs:              ctx.macs,\n    macsDisplay:       ctx.macsDisplay,\n    eventType:         ctx.eventType,\n    topic:             ctx.topic,\n    rawEvent:          ctx.rawEvent,\n    timestamp:         ctx.timestamp,\n    apiHost:           ctx.apiHost,\n    orgId:             ctx.orgId,\n    searchUrl: `https://${ctx.apiHost}/api/v1/sites/${site.id}/wired_clients/search`\n  }\n}));"
+      },
+      "id": "a606566e-5040-4b2d-a29f-5c3a18b154f2",
+      "name": "Build Site Searches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.searchUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "mac",
+              "value": "={{ $json.currentMacDisplay }}"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "id": "a72b767a-9f33-4be1-aff2-9eb57f3bc983",
+      "name": "Search Wired Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1936,
+        944
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Ud9Uy27mBAS8S7Cr",
+          "name": "Mist API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Collect all search results, resolve switch+port, deduplicate ─────────────\nconst allItems = $input.all();\n\n// ---------- helpers ----------\nfunction normalizeMac(mac) {\n  return String(mac || '').replace(/[:\\-\\.]/g, '').toLowerCase();\n}\n\nfunction formatMac(mac) {\n  const m = normalizeMac(mac);\n  return m.length === 12 ? m.match(/.{2}/g).join(':') : mac;\n}\n\nfunction normalizeHost(host) {\n  if (!host) return 'api.mist.com';\n  if (host === 'api') return 'api.mist.com';\n  if (!host.includes('.')) return 'api.mist.com';\n  return host;\n}\n\n// ---------- extract config safely ----------\nlet apiHost = null;\nlet orgId   = null;\n\nfor (const item of allItems) {\n  const b = item.json || {};\n  if (!apiHost && b.apiHost) apiHost = b.apiHost;\n  if (!orgId   && b.orgId)   orgId   = b.orgId;\n}\n\n// fallback defaults\napiHost = normalizeHost(apiHost);\norgId   = orgId ?? '';\n\n// ---------- main processing ----------\nconst portMap = {};\nlet ctx = null;\n\nfor (const item of allItems) {\n  const body    = item.json;\n  const results = body.results ?? [];\n\n  if (!ctx) {\n    ctx = {\n      macs:        body.macs        ?? [],\n      macsDisplay: body.macsDisplay ?? [],\n      eventType:   body.eventType   ?? '',\n      topic:       body.topic       ?? '',\n      rawEvent:    body.rawEvent    ?? {},\n      timestamp:   body.timestamp   ?? new Date().toISOString(),\n      apiHost,\n      orgId\n    };\n  }\n\n  for (const r of results) {\n    const dmp       = r.device_mac_port?.[0] ?? {};\n    const switchMac = dmp.device_mac || r.last_device_mac || '';\n    const portId    = dmp.port_id    || r.last_port_id    || '';\n    const vlan      = dmp.vlan       || r.last_vlan       || '';\n    const siteId    = r.site_id      || body.siteId       || '';\n    const siteName  = body.siteName  || '';\n    const clientMac = r.mac          || body.currentMac   || '';\n\n    if (!switchMac || !portId) continue;\n\n    const key = `${siteId}|${normalizeMac(switchMac)}|${portId}`;\n\n    if (!portMap[key]) {\n      portMap[key] = {\n        siteId,\n        siteName,\n        switchMac: normalizeMac(switchMac),\n        switchMacDisplay: formatMac(switchMac),\n        portId,\n        vlan,\n        macs: [],\n        apiHost,\n        orgId\n      };\n    }\n\n    if (clientMac) {\n      const formatted = formatMac(clientMac);\n      if (!portMap[key].macs.includes(formatted)) {\n        portMap[key].macs.push(formatted);\n      }\n    }\n  }\n}\n\n// ---------- output ----------\nconst ports = Object.values(portMap);\n\nif (!ports.length) {\n  return [{\n    json: {\n      skip: true,\n      reason: 'MACs not found in any wired client table',\n      apiHost,\n      orgId\n    }\n  }];\n}\n\n// Emit one item per unique port\nreturn ports.map(port => ({\n  json: {\n    ...ctx,\n    ...port,\n    devicesUrl: `https://${apiHost}/api/v1/sites/${port.siteId}/devices?type=switch`\n  }\n}));"
+      },
+      "id": "c80b84f4-ad81-48a3-8746-0d372407c660",
+      "name": "Deduplicate Ports",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "a0d9e72d-86c0-4a1d-818d-8dc4e905e65d",
+              "leftValue": "=={{ $json.skip }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "77fe2443-c773-4a41-8610-824ff2911a2f",
+      "name": "Port Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        944
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.devicesUrl}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "id": "1c813057-d112-4469-9fb4-8c20c359ee5a",
+      "name": "Get Switch Devices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2496,
+        960
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Ud9Uy27mBAS8S7Cr",
+          "name": "Mist API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Match the switch by MAC and build the port disable PATCH payload ─────────\nconst devices = Array.isArray($input.first().json)\n  ? $input.first().json\n  : [$input.first().json];\n\nconst ctx = $('Deduplicate Ports').first().json;\n\nfunction normalizeMac(mac) {\n  return mac.replace(/[:\\-\\.]/g, '').toLowerCase();\n}\n\nconst target = devices.find(\n  d => normalizeMac(d.mac ?? '') === normalizeMac(ctx.switchMac)\n);\n\nif (!target) {\n  return [{ json: {\n    skip: true,\n    reason: `Switch ${ctx.switchMacDisplay} not found in site ${ctx.siteName}`,\n    ...ctx\n  }}];\n}\n\n// Merge disabled-no-poe into existing port_config\nconst portConfig = target.port_config ?? {};\nportConfig[ctx.portId] = { usage: 'disabled-no-poe' };\n\nreturn [{ json: {\n  ...ctx,\n  deviceId:   target.id,\n  deviceName: target.name ?? target.id,\n  patchUrl:   `https://${ctx.apiHost}/api/v1/sites/${ctx.siteId}/devices/${target.id}`,\n  patchBody:  { port_config: portConfig }\n} }];"
+      },
+      "id": "7452c263-fecf-4703-8192-67e6f5fb3ae2",
+      "name": "Resolve Device & Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.patchUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.patchBody) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "d90a6cdd-9996-41ba-a838-1ab841964b5e",
+      "name": "Disable Port (disabled-no-poe)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2912,
+        960
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Ud9Uy27mBAS8S7Cr",
+          "name": "Mist API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Build the email summary after a successful shutdown ──────────────────────\nconst httpResp = $input.first().json;\nconst ctx      = $('Resolve Device & Build Payload').first().json;\nconst cfg      = $('⚙️ Config (edit me)').first().json;\n\nconst success  = httpResp.statusCode >= 200 && httpResp.statusCode < 300;\nconst status   = success ? '✅ SUCCESS' : `❌ FAILED (HTTP ${httpResp.statusCode})`;\n\nconst subject = `[Mist] Rogue ${ctx.eventType} — Port ${ctx.portId} on ${ctx.deviceName} ${success ? 'SHUT DOWN' : 'SHUTDOWN FAILED'}`;\n\nconst body = `\nMist Rogue Auto-Shutdown Report\n================================\nTimestamp  : ${ctx.timestamp}\nStatus     : ${status}\nEvent Type : ${ctx.eventType}\nSite       : ${ctx.siteName}\nSwitch     : ${ctx.deviceName} (${ctx.switchMacDisplay})\nPort       : ${ctx.portId}\nVLAN       : ${ctx.vlan}\nRogue MACs : ${ctx.macs.join(', ')}\nProfile    : disabled-no-poe\n\nRaw Mist Event:\n${JSON.stringify(ctx.rawEvent, null, 2)}\n`.trim();\n\nreturn [{ json: {\n  subject,\n  body,\n  success,\n  fromEmail: cfg.emailFrom,\n  toEmail:   cfg.emailTo,\n  ...ctx\n} }];"
+      },
+      "id": "51ca491b-e502-4bcb-9b26-7b632be8fee5",
+      "name": "Build Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $json.fromEmail }}",
+        "toEmail": "={{ $json.toEmail }}",
+        "subject": "={{ $json.subject }}",
+        "options": {}
+      },
+      "id": "1946f49f-ab0f-4656-a405-083219e0bd35",
+      "name": "Send Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3328,
+        960
+      ],
+      "webhookId": "59a2fe95-e5e1-4bb2-aa17-049e0514b064",
+      "credentials": {
+        "smtp": {
+          "id": "XXXXXXXXXXXX",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log skipped events so they appear clearly in execution history\nconst item = $input.first().json;\nconsole.log(`[SKIP] ${item.reason ?? 'Unknown reason'} | topic=${item.topic ?? ''} | macs=${JSON.stringify(item.macsDisplay ?? [])}`);\nreturn [{ json: { logged: true, ...item } }];"
+      },
+      "id": "d7507829-d3c7-440b-94d4-351ce3f67b36",
+      "name": "No Rogue Found - Skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconsole.log(`[SKIP] ${item.reason} | switch=${item.switchMacDisplay ?? ''} | port=${item.portId ?? ''}`);\nreturn [{ json: { logged: true, ...item } }];"
+      },
+      "id": "427cb2bc-5883-47fe-b3b1-0b53ae54f732",
+      "name": "No Port Found - Skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mist-rogue",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "cd015386-bc09-478e-9a15-b9ac066afcb5",
+      "name": "Mist Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        496,
+        928
+      ],
+      "webhookId": "mist-rogue-autoshutdown"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "⚙️ Config (edit me)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Rogue Found?": {
+      "main": [
+        [
+          {
+            "node": "No Rogue Found - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare MAC Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Parse Rogue Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Rogue Events": {
+      "main": [
+        [
+          {
+            "node": "No Rogue Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare MAC Search": {
+      "main": [
+        [
+          {
+            "node": "Get Sites",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sites": {
+      "main": [
+        [
+          {
+            "node": "Build Site Searches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Site Searches": {
+      "main": [
+        [
+          {
+            "node": "Search Wired Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Wired Clients": {
+      "main": [
+        [
+          {
+            "node": "Deduplicate Ports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplicate Ports": {
+      "main": [
+        [
+          {
+            "node": "Port Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Port Found?": {
+      "main": [
+        [
+          {
+            "node": "No Port Found - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Switch Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Switch Devices": {
+      "main": [
+        [
+          {
+            "node": "Resolve Device & Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Device & Build Payload": {
+      "main": [
+        [
+          {
+            "node": "Disable Port (disabled-no-poe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disable Port (disabled-no-poe)": {
+      "main": [
+        [
+          {
+            "node": "Build Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email": {
+      "main": [
+        [
+          {
+            "node": "Send Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mist Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "⚙️ Config (edit me)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "fd2dcfd4-9556-4043-9740-8facebaf64b2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "30cfe1fcb9eace404da3c6d3bd92544bf77b3da8ae59b8ac09825947fee68820"
+  },
+  "id": "4KKRChYMvtb9VHu7",
+  "tags": [
+    {
+      "updatedAt": "2026-04-01T02:19:10.320Z",
+      "createdAt": "2026-04-01T02:19:10.320Z",
+      "id": "1QYqmn4TIfnF25tm",
+      "name": "Mist"
+    },
+    {
+      "updatedAt": "2026-04-01T02:19:10.356Z",
+      "createdAt": "2026-04-01T02:19:10.356Z",
+      "id": "MSdI8DmzmpqEssud",
+      "name": "Security"
+    },
+    {
+      "updatedAt": "2026-04-01T02:19:10.285Z",
+      "createdAt": "2026-04-01T02:19:10.285Z",
+      "id": "oFljDigiR0eLBoSs",
+      "name": "Network Automation"
+    }
+  ]
+}
