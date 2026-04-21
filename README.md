@@ -10,7 +10,7 @@ All use of this repository and its workflows is at your own risk. The author and
 The Mist Rogue Auto-Shutdown workflow is designed to automate the shutdown of rogue devices on your network using n8n. This process helps maintain network integrity and security by removing unauthorized devices swiftly and efficiently.
 
 ## Features
-- **Automated Device Detection:** Automatically detects rogue devices on the network.
+- **Automated Rogue AP containment:** Automatically detects rogue AP switch ports on the network and disable it.
 - **Email Notifications:** Sends alerts when rogue devices are detected and actions are taken.
 - **Customizable Workflow:** Users can tailor the workflow to fit their specific network needs.
 - **Logging and Tracking:** Keeps detailed logs of actions taken for auditing and troubleshooting purposes.
